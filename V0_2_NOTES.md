@@ -11,6 +11,7 @@ This release upgrades the Python World Engine from independent-cell runoff to a 
 - Watershed outlets on world edges and a conservation diagnostic that records rainfall input, evapotranspiration, exported water, stored water, and numerical residual.
 - Flow accumulation state used to identify visual river channels.
 - Erosion that responds to terrain slope and routed flow rather than absolute elevation.
+- Completed-year history with dated interventions, natural threshold events, annual world-state changes, watershed outflow, and peak routed flow. Use `summary` or `summary <year>` in the CLI.
 
 ## Deliberately not included yet
 
