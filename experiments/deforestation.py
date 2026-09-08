@@ -6,8 +6,20 @@ Compares two identical worlds (identical random seed):
 Observes secondary consequences on runoff, erosion, soil moisture, fertility, and recovery.
 """
 
+import os
+import sys
 from typing import Dict, Any, List
-from artificial_civilization.world.world import World
+
+_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_PARENT_DIR = os.path.dirname(_ROOT_DIR)
+for _p in (_ROOT_DIR, _PARENT_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+try:
+    from world.world import World
+except ImportError:
+    from artificial_civilization.world.world import World
 
 
 def run_deforestation_experiment(

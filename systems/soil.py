@@ -1,5 +1,5 @@
 """
-Soil System for World Engine v0.1
+Soil System for World Engine v0.2
 Responsible for:
 - Soil erosion from surface runoff and bare terrain
 - Soil depth evolution (weathering generation vs erosive loss)
@@ -14,51 +14,53 @@ if TYPE_CHECKING:
 
 class SoilSystem:
     def __init__(self):
-        # Daily bedrock weathering into new soil (meters/day)
-        self.weathering_rate_m = 0.00003
-        # Baseline erodibility coefficient
-        self.erodibility_coeff = 0.012
+        # Bedrock weathering rate: ~0.05 mm of new soil generated per year (~0.00000014 m/day)
+        self.weathering_rate_m = 0.00000014
+        # Calibrated erodibility coefficient for geological timescales (decades, not days)
+        self.erodibility_coeff = 0.00035
 
     def update(self, world: "World") -> None:
         """
         Advance soil dynamics by 1 day.
-        Calculates runoff-induced erosion, topsoil depth loss, and organic fertility turnover.
+        Calculates runoff-induced erosion, topsoil depth loss, and organic fertility turnover
+        calibrated to natural multi-decade geological pacing.
         """
         for row in world.grid:
             for cell in row:
                 veg = cell.vegetation_cover
                 runoff = cell.runoff
 
-                # 1. Soil Erosion
-                # Bare soil has almost no root tensile strength or canopy umbrella protection.
-                # Protective factor: roots bind soil; foliage dissipates raindrop energy.
-                canopy_protection = veg ** 1.5  # Non-linear protective threshold
-                exposure_factor = max(0.05, 1.0 - canopy_protection)
+                # 1. Soil Erosion (Geological pacing)
+                # Dense forest canopy and deep root meshes reduce soil detachment by up to 99%.
+                # Bare, cleared soil on slopes is vulnerable during heavy storm runoff.
+                canopy_protection = veg ** 2.0
+                exposure_factor = max(0.02, 1.0 - canopy_protection)
                 
-                # Kinetic energy of runoff (steeper elevation increases water velocity)
-                slope_proxy = 0.8 + (cell.elevation / 600.0)
+                # Kinetic energy depends on actual local terrain gradient.  A
+                # high but flat plateau therefore does not behave like a steep
+                # hillside merely because of its altitude.
+                slope_factor = 1.0 + 25.0 * cell.slope
+                erosive_water = cell.runoff + 0.25 * cell.flow_accumulation
                 
-                # Daily erosion in mm of topsoil stripped
-                daily_erosion = runoff * exposure_factor * slope_proxy * self.erodibility_coeff
+                # Erosion in mm of topsoil stripped during this event
+                # Intact forest loses ~0.00005 mm/storm; bare disturbed slope loses ~0.002 - 0.008 mm/storm
+                daily_erosion = erosive_water * exposure_factor * slope_factor * self.erodibility_coeff
                 cell.erosion = daily_erosion
 
-                # 2. Soil Depth Dynamics
-                # Erosion removes topsoil (convert mm to meters)
+                # 2. Soil Depth Dynamics (Meters)
                 depth_loss_m = daily_erosion * 0.001
-                # Underlying rock weathering gradually builds soil depth
                 depth_gain_m = self.weathering_rate_m
-                
                 cell.soil_depth = max(0.05, cell.soil_depth - depth_loss_m + depth_gain_m)
 
                 # 3. Soil Fertility Dynamics
-                # Organic enrichment: leaves, roots, decaying organic matter
-                biomass_turnover = 0.0010 * veg * min(1.0, cell.soil_moisture * 1.5)
+                # Slow organic enrichment from leaf litter and root decay
+                biomass_turnover = 0.00025 * veg * min(1.0, cell.soil_moisture * 1.5)
                 
-                # Nutrient loss: severe erosion carries away nutrient-rich humus
-                erosion_fertility_loss = daily_erosion * 0.03
+                # Erosive nutrient removal
+                erosion_fertility_loss = daily_erosion * 0.15
                 
-                # Slow natural chemical leaching
-                leaching_loss = 0.0001
+                # Natural chemical leaching
+                leaching_loss = 0.00002
 
                 cell.soil_fertility = max(
                     0.05,

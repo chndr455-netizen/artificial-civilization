@@ -14,10 +14,10 @@ if TYPE_CHECKING:
 
 class VegetationSystem:
     def __init__(self):
-        # Maximum daily vegetative proliferation rate
-        self.base_growth_rate = 0.015
+        # Maximum daily vegetative growth rate (calibrated for seasonal biological inertia)
+        self.base_growth_rate = 0.0035
         # Background natural turnover / senescence
-        self.natural_decay_rate = 0.002
+        self.natural_decay_rate = 0.0004
 
     def update(self, world: "World") -> None:
         """

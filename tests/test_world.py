@@ -3,9 +3,23 @@ Unit Tests for World Engine v0.1
 Validates invariants, causal relationships, determinism, and conservation rules.
 """
 
+import os
+import sys
 import unittest
-from artificial_civilization.world.world import World
-from artificial_civilization.experiments.deforestation import run_deforestation_experiment
+
+_TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_DIR = os.path.dirname(_TESTS_DIR)
+_PARENT_DIR = os.path.dirname(_PROJECT_DIR)
+for _p in (_PROJECT_DIR, _PARENT_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+try:
+    from world.world import World
+    from experiments.deforestation import run_deforestation_experiment
+except ImportError:
+    from artificial_civilization.world.world import World
+    from artificial_civilization.experiments.deforestation import run_deforestation_experiment
 
 
 class TestWorldEngine(unittest.TestCase):
@@ -78,6 +92,42 @@ class TestWorldEngine(unittest.TestCase):
         # World B with cut forest should experience more cumulative runoff and erosion
         self.assertGreater(res["total_runoff_b"], res["total_runoff_a"])
         self.assertGreater(res["total_erosion_b"], res["total_erosion_a"])
+
+    def test_slope_comes_from_neighbors_not_absolute_elevation(self):
+        """A flat high cell has zero slope; a low steep cell does not."""
+        world = World(width=3, height=1, seed=1, cell_size_m=100.0)
+        world.get_cell(0, 0).elevation = 400.0
+        world.get_cell(1, 0).elevation = 400.0
+        world.get_cell(2, 0).elevation = 50.0
+        world._update_slopes()
+
+        self.assertEqual(world.get_cell(0, 0).slope, 0.0)
+        self.assertAlmostEqual(world.get_cell(1, 0).slope, 3.5)
+        self.assertEqual(world.get_cell(2, 0).slope, 0.0)
+
+    def test_surface_water_moves_downhill_between_cells(self):
+        """Routing moves water into a lower neighbor, independent of grid order."""
+        world = World(width=2, height=1, seed=1, cell_size_m=100.0)
+        high = world.get_cell(0, 0)
+        low = world.get_cell(1, 0)
+        high.elevation, low.elevation = 200.0, 100.0
+        high.soil_moisture = low.soil_moisture = 1.0
+        high.surface_water, low.surface_water = 10.0, 0.0
+        high.rainfall = low.rainfall = 0.0
+        high.temperature = low.temperature = -5.0
+        world._update_slopes()
+
+        world.water_system.update(world)
+
+        self.assertLess(high.surface_water, 10.0)
+        self.assertGreater(low.surface_water, 0.0)
+        self.assertGreater(high.flow_accumulation, 0.0)
+
+    def test_water_balance_is_conserved_after_rain_and_routing(self):
+        """Rain, storage, and evapotranspiration must balance each daily tick."""
+        world = World(width=4, height=4, seed=123)
+        world.tick(40)
+        self.assertAlmostEqual(world.last_water_balance["residual_mm"], 0.0, places=8)
 
 
 if __name__ == "__main__":

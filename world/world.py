@@ -1,24 +1,40 @@
 """
-Authoritative World State & Simulation Engine for World Engine v0.1
-Maintains canonical 10x10 spatial world state and runs sequential natural systems.
+Authoritative World State & Simulation Engine for World Engine v0.2.
+Maintains canonical spatial world state and runs deterministic natural systems.
 """
 
 import math
 import random
 from typing import List, Dict, Any, Optional, Tuple
 
-from artificial_civilization.world.cell import Cell
-from artificial_civilization.systems.weather import WeatherSystem
-from artificial_civilization.systems.water import WaterSystem
-from artificial_civilization.systems.soil import SoilSystem
-from artificial_civilization.systems.vegetation import VegetationSystem
+try:
+    from world.cell import Cell
+    from systems.weather import WeatherSystem
+    from systems.water import WaterSystem
+    from systems.soil import SoilSystem
+    from systems.vegetation import VegetationSystem
+except ImportError:
+    from artificial_civilization.world.cell import Cell
+    from artificial_civilization.systems.weather import WeatherSystem
+    from artificial_civilization.systems.water import WaterSystem
+    from artificial_civilization.systems.soil import SoilSystem
+    from artificial_civilization.systems.vegetation import VegetationSystem
 
 
 class World:
-    def __init__(self, width: int = 10, height: int = 10, seed: int = 12345):
+    RIVER_FLOW_THRESHOLD = 50.0  # mm/day, calibrated for the 100 m v0.2 grid
+
+    def __init__(
+        self,
+        width: int = 10,
+        height: int = 10,
+        seed: int = 88888,
+        cell_size_m: float = 100.0,
+    ):
         self.width = width
         self.height = height
         self.seed = seed
+        self.cell_size_m = cell_size_m
         self.rng = random.Random(seed)
         self.day = 1
 
@@ -33,6 +49,11 @@ class World:
 
         # Initialize the 2D spatial grid (10 x 10 cells)
         self.grid: List[List[Cell]] = self._generate_terrain()
+        self._update_slopes()
+
+        # A diagnostic produced by WaterSystem each tick.  It lets tests and
+        # experiments verify water accounting rather than only numeric bounds.
+        self.last_water_balance: Dict[str, float] = {}
 
     def _generate_terrain(self) -> List[List[Cell]]:
         """
@@ -78,11 +99,41 @@ class World:
             return self.grid[y][x]
         return None
 
+    def cardinal_neighbors(self, x: int, y: int) -> List[Cell]:
+        """Return valid north, east, south, and west neighbors in fixed order."""
+        neighbors: List[Cell] = []
+        for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+            neighbor = self.get_cell(x + dx, y + dy)
+            if neighbor is not None:
+                neighbors.append(neighbor)
+        return neighbors
+
+    def downhill_neighbors(self, cell: Cell) -> List[Tuple[Cell, float]]:
+        """Return lower cardinal neighbors with their terrain gradient.
+
+        Gradients are derived from elevation differences, not a cell's absolute
+        elevation.  This is the v0.2 spatial relationship used by routing and
+        erosion.
+        """
+        downhill: List[Tuple[Cell, float]] = []
+        for neighbor in self.cardinal_neighbors(cell.x, cell.y):
+            drop_m = cell.elevation - neighbor.elevation
+            if drop_m > 0.0:
+                downhill.append((neighbor, drop_m / self.cell_size_m))
+        return downhill
+
+    def _update_slopes(self) -> None:
+        """Cache each cell's steepest cardinal downhill terrain gradient."""
+        for row in self.grid:
+            for cell in row:
+                downhill = self.downhill_neighbors(cell)
+                cell.slope = max((gradient for _, gradient in downhill), default=0.0)
+
     def tick(self, days: int = 1) -> None:
         """
         Advance the simulation clock by specified number of days (default 1).
-        Executes systems in strict causal order (Section 2, Principle 5):
-        Weather -> Water -> Soil -> Vegetation.
+        Executes systems in strict causal order:
+        Weather -> local water balance and routing -> Soil -> Vegetation.
         """
         for _ in range(days):
             self.weather_system.update(self)
@@ -118,6 +169,9 @@ class World:
             f"Soil Fertility:  {cell.soil_fertility:>6.2f}",
             f"Soil Depth:      {cell.soil_depth:>6.2f} m",
             f"Runoff:          {cell.runoff:>6.1f} mm",
+            f"Surface Water:   {cell.surface_water:>6.2f} mm",
+            f"Flow Accum.:     {cell.flow_accumulation:>6.2f} mm/day",
+            f"Terrain Slope:   {cell.slope:>6.3f}",
             f"Erosion:         {cell.erosion:>6.4f} mm",
             f"Forest Cover:    {cell.vegetation_cover:>6.2f}",
         ]
@@ -159,6 +213,7 @@ class World:
         avg_erosion = sum(c.erosion for row in self.grid for c in row) / total
         avg_runoff = sum(c.runoff for row in self.grid for c in row) / total
         avg_depth = sum(c.soil_depth for row in self.grid for c in row) / total
+        avg_flow = sum(c.flow_accumulation for row in self.grid for c in row) / total
 
         return {
             "day": self.day,
@@ -170,12 +225,14 @@ class World:
             "avg_erosion": round(avg_erosion, 4),
             "avg_runoff": round(avg_runoff, 2),
             "avg_soil_depth": round(avg_depth, 3),
+            "avg_flow_accumulation": round(avg_flow, 3),
         }
 
     def render_ascii_map(self, layer: str = "vegetation") -> str:
         """
         v0.2 ASCII / grid representation (Section 15 of blueprint).
-        Layers: 'vegetation', 'moisture', 'erosion', 'elevation', 'fertility'
+        Layers: 'satellite', 'vegetation', 'moisture', 'erosion', 'elevation',
+        'fertility', 'flow', and 'slope'.
         """
         chars_veg = [" ", "░", "▒", "▓", "█"]
         chars_moist = [".", "-", "~", "=", "≈"]
@@ -189,7 +246,24 @@ class World:
             row_str = f"{y:2d}|"
             for x in range(self.width):
                 cell = self.grid[y][x]
-                if layer == "vegetation":
+                if layer == "satellite":
+                    if cell.elevation >= 320.0:
+                        char = "▲"  # Alpine Mountain Peak
+                    elif cell.elevation >= 220.0 and cell.vegetation_cover < 0.45:
+                        char = "⋀"  # Highland Rocky Ridge
+                    elif cell.flow_accumulation >= self.RIVER_FLOW_THRESHOLD:
+                        char = "~"  # Routed river channel / wetland basin
+                    elif cell.vegetation_cover >= 0.68:
+                        char = "♠"  # Dense Forest
+                    elif cell.vegetation_cover >= 0.40:
+                        char = "♣"  # Woodland / Grove
+                    elif cell.vegetation_cover >= 0.18:
+                        char = "*"  # Bushes / Shrubland
+                    elif cell.vegetation_cover >= 0.08:
+                        char = "."  # Grassland / Meadow
+                    else:
+                        char = "░"  # Bare / Cleared Earth
+                elif layer == "vegetation":
                     idx = int(cell.vegetation_cover * (len(chars_veg) - 1))
                     char = chars_veg[min(len(chars_veg) - 1, max(0, idx))]
                 elif layer == "moisture":
@@ -209,6 +283,10 @@ class World:
                     norm_e = (cell.elevation - 40.0) / 400.0
                     idx = int(norm_e * (len(chars_elev) - 1))
                     char = chars_elev[min(len(chars_elev) - 1, max(0, idx))]
+                elif layer == "flow":
+                    char = "~" if cell.flow_accumulation >= self.RIVER_FLOW_THRESHOLD else "."
+                elif layer == "slope":
+                    char = "^" if cell.slope >= 0.5 else "/" if cell.slope >= 0.15 else "."
                 else:
                     char = "?"
                 row_str += f" {char}"

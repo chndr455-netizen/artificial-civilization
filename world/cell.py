@@ -1,5 +1,5 @@
 """
-Cell Data Structure for World Engine v0.1
+Cell Data Structure for World Engine v0.2
 Represents a discrete spatial geographical cell in the simulation.
 """
 
@@ -19,7 +19,10 @@ class Cell:
 
     # Hydrology
     soil_moisture: float = 0.5  # 0.0 (bone dry) to 1.0 (saturated)
-    runoff: float = 0.0         # mm per day of surface water runoff
+    runoff: float = 0.0         # mm generated locally this day after infiltration
+    surface_water: float = 0.0  # mm temporarily stored on the ground
+    flow_accumulation: float = 0.0  # smoothed mm/day of routed water through this cell
+    slope: float = 0.0          # steepest cardinal downhill gradient (rise / run)
 
     # Soil & Geology
     soil_depth: float = 1.0     # meters of active topsoil layer
@@ -40,6 +43,9 @@ class Cell:
         self.soil_depth = max(0.01, min(5.0, self.soil_depth))
         self.rainfall = max(0.0, self.rainfall)
         self.runoff = max(0.0, self.runoff)
+        self.surface_water = max(0.0, self.surface_water)
+        self.flow_accumulation = max(0.0, self.flow_accumulation)
+        self.slope = max(0.0, self.slope)
         self.erosion = max(0.0, self.erosion)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -53,6 +59,9 @@ class Cell:
             "soil_fertility": round(self.soil_fertility, 3),
             "soil_depth": round(self.soil_depth, 3),
             "runoff": round(self.runoff, 2),
+            "surface_water": round(self.surface_water, 3),
+            "flow_accumulation": round(self.flow_accumulation, 3),
+            "slope": round(self.slope, 4),
             "erosion": round(self.erosion, 4),
             "vegetation_cover": round(self.vegetation_cover, 3),
         }

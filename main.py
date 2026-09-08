@@ -1,17 +1,31 @@
 """
-World Engine v0.1 — Main Interactive CLI
+World Engine v0.2 — Main Interactive CLI
 Entry point for running the simulation on a local Linux laptop.
 """
 
 import sys
-from artificial_civilization.world.world import World
-from artificial_civilization.experiments.deforestation import run_deforestation_experiment, print_experiment_report
+import os
+
+# Automatically ensure current folder and parent folder are in sys.path
+# so running `python3 main.py` directly from inside the folder works seamlessly
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PARENT_DIR = os.path.dirname(_CURRENT_DIR)
+for _p in (_CURRENT_DIR, _PARENT_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+try:
+    from world.world import World
+    from experiments.deforestation import run_deforestation_experiment, print_experiment_report
+except ImportError:
+    from artificial_civilization.world.world import World
+    from artificial_civilization.experiments.deforestation import run_deforestation_experiment, print_experiment_report
 
 
 def print_banner():
     print("""
 ===========================================================
-      ARTIFICIAL CIVILIZATION: WORLD ENGINE v0.1
+      ARTIFICIAL CIVILIZATION: WORLD ENGINE v0.2
   Procedural, Text-Based Natural World Simulation Engine
 ===========================================================
   Systems: Weather • Hydrology • Soil & Erosion • Vegetation
@@ -27,7 +41,7 @@ Available Commands:
   tick [N]                 Advance world by N days (default 1)
   inspect <x> <y>          Inspect environmental state of cell (x, y)
   map [layer]              Display 10x10 ASCII grid map
-                           Layers: vegetation (default), moisture, erosion, elevation, fertility
+                           Layers: vegetation (default), moisture, erosion, elevation, fertility, flow, slope
   cut <x> <y> [cover]      Human intervention: cut forest at (x, y) to cover (default 0.15)
   status                   Display current world day & global average metrics
   experiment               Run Experiment 1: Deforestation comparison (World A vs B)
@@ -91,7 +105,7 @@ def run_cli():
 
         elif cmd == "map":
             layer = args[0].lower() if args else "vegetation"
-            valid_layers = ("vegetation", "moisture", "erosion", "elevation", "fertility")
+            valid_layers = ("vegetation", "moisture", "erosion", "elevation", "fertility", "flow", "slope")
             if layer not in valid_layers:
                 print(f"Unknown layer '{layer}'. Choose from: {', '.join(valid_layers)}")
                 continue

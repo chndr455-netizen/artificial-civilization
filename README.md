@@ -1,20 +1,20 @@
-# Artificial Civilization: World Engine (v0.1)
+# Artificial Civilization: World Engine (v0.2)
 
-A procedural, text-based simulation engine modeling interacting natural systems on a 10 × 10 spatial grid.
+A procedural, text-based simulation engine modeling interacting natural systems on a 10 × 10 spatial grid. Python is the authoritative simulation engine in this package.
 
 Developed according to the **World Engine Technical Project Blueprint (Version 0.1 → 1.0)**.
 
 ---
 
-## What is World Engine v0.1?
+## What is World Engine v0.2?
 
-World Engine v0.1 creates a foundational, deterministic natural environment with four interacting physical systems:
+World Engine v0.2 extends the foundational natural environment with cardinal neighbor lookup, terrain gradients derived from adjacent elevations, deterministic downhill surface-water routing, and a per-tick water-balance diagnostic. It retains four interacting physical systems:
 1. **Weather System**: Atmospheric seasonal cycles, daily weather fronts, temperature lapse rates with elevation, and orographic rainfall.
 2. **Water / Hydrology System**: Canopy interception, soil infiltration capacity, surface runoff, and evapotranspiration.
 3. **Soil System**: Runoff-driven topsoil erosion, organic matter decomposition, and soil depth evolution.
 4. **Vegetation System**: Logistic biomass growth governed by temperature, moisture, fertility, and canopy carrying capacity; drought and frost stress.
 
-No AI agents, no economy, and no graphics are needed yet. The goal of v0.1 is to establish a **truthful causal world state**.
+No AI agents or economy are included. The goal is a **truthful causal world state**: river channels are derived from routed flow, not visual-only heuristics.
 
 ```text
 Forest ↓
@@ -64,7 +64,7 @@ Inside `python3 main.py`:
 - `tick [N]`: Advance simulation clock by `N` days (e.g., `tick 10` or `tick 365`).
 - `inspect <x> <y>`: Inspect all physical parameters of a geographical cell (e.g., `inspect 5 5`).
 - `map [layer]`: Render a 10x10 ASCII map of the world.
-  - Available layers: `vegetation`, `moisture`, `erosion`, `elevation`, `fertility`
+  - Available layers: `vegetation`, `moisture`, `erosion`, `elevation`, `fertility`, `flow`, `slope`
 - `cut <x> <y> [cover]`: Trigger a human intervention (clear forest at cell `x, y` to `0.15`).
 - `status`: Show current world day and global average metrics.
 - `experiment`: Run the two-world Deforestation Causality Experiment (World A Control vs. World B Intervention).
@@ -81,12 +81,12 @@ artificial_civilization/
 ├── README.md                # Project documentation & Linux setup guide
 ├── world/
 │   ├── __init__.py
-│   ├── cell.py              # Canonical Cell dataclass & physical bounds
-│   └── world.py             # World state, 10x10 spatial grid, tick loop
+│   ├── cell.py              # Canonical Cell state, including surface water and flow
+│   └── world.py             # World state, neighbor lookup, terrain slopes, tick loop
 ├── systems/
 │   ├── __init__.py
 │   ├── weather.py           # Temperature & rainfall dynamics
-│   ├── water.py             # Hydrology, infiltration, runoff, evapotranspiration
+│   ├── water.py             # Hydrology, water balance, runoff, and downhill routing
 │   ├── soil.py              # Erosion & fertility dynamics
 │   └── vegetation.py        # Biomass growth & environmental stress
 ├── experiments/
@@ -94,5 +94,5 @@ artificial_civilization/
 │   └── deforestation.py     # Experiment 1: Dual-world comparative test
 └── tests/
     ├── __init__.py
-    └── test_world.py        # Verification of invariants, determinism, & causality
+    └── test_world.py        # Invariants, determinism, causality, flow, and conservation
 ```
