@@ -67,6 +67,7 @@ Inside `python3 main.py`:
   - Available layers: `vegetation`, `moisture`, `erosion`, `elevation`, `fertility`, `flow`, `slope`
 - `cut <x> <y> [cover]`: Trigger a human intervention (clear forest at cell `x, y` to `0.15`).
 - `status`: Show current world day and global average metrics.
+- `summary [year]`: Show history for completed simulation years. With no argument it shows every completed year; `summary 2` shows only Year 2. The current incomplete year is deliberately omitted.
 - `experiment`: Run the two-world Deforestation Causality Experiment (World A Control vs. World B Intervention).
 - `help`: Display help menu.
 - `quit`: Exit simulation.

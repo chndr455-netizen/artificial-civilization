@@ -23,6 +23,9 @@ except ImportError:
 
 class World:
     RIVER_FLOW_THRESHOLD = 50.0  # mm/day, calibrated for the 100 m v0.2 grid
+    HIGH_FLOW_EVENT_THRESHOLD = 100.0
+    HIGH_EROSION_EVENT_THRESHOLD = 0.05
+    DROUGHT_EVENT_THRESHOLD = 0.15
 
     def __init__(
         self,
@@ -46,6 +49,9 @@ class World:
 
         # Log of events (human interventions, natural anomalies)
         self.event_log: List[Dict[str, Any]] = []
+        self.annual_summaries: List[Dict[str, Any]] = []
+        self._active_natural_events = set()
+        self._annual_natural_event_keys = set()
 
         # Initialize the 2D spatial grid (10 x 10 cells)
         self.grid: List[List[Cell]] = self._generate_terrain()
@@ -54,6 +60,9 @@ class World:
         # A diagnostic produced by WaterSystem each tick.  It lets tests and
         # experiments verify water accounting rather than only numeric bounds.
         self.last_water_balance: Dict[str, float] = {}
+        self._year_start_state = self._snapshot_world_state()
+        self._year_outflow_mm = 0.0
+        self._year_peak_flow = {"value": 0.0, "x": 0, "y": 0, "day": self.day}
 
     def _generate_terrain(self) -> List[List[Cell]]:
         """
@@ -140,7 +149,155 @@ class World:
             self.water_system.update(self)
             self.soil_system.update(self)
             self.vegetation_system.update(self)
+            self._record_natural_events()
+            self._accumulate_yearly_observations()
             self.day += 1
+            if (self.day - 1) % 365 == 0:
+                self._finalize_year((self.day - 1) // 365)
+
+    def _snapshot_world_state(self) -> Dict[str, float]:
+        """Capture the small, stable set of values used in annual comparisons."""
+        summary = self.get_world_summary()
+        return {
+            "avg_vegetation_cover": summary["avg_vegetation_cover"],
+            "avg_soil_moisture": summary["avg_soil_moisture"],
+            "avg_soil_fertility": summary["avg_soil_fertility"],
+            "avg_soil_depth": summary["avg_soil_depth"],
+        }
+
+    def _record_natural_events(self) -> None:
+        """Record threshold crossings, not repetitive daily status messages."""
+        for row in self.grid:
+            for cell in row:
+                self._record_threshold_event(
+                    "HIGH_FLOW",
+                    cell.flow_accumulation >= self.HIGH_FLOW_EVENT_THRESHOLD,
+                    cell,
+                    f"Routed flow reached {cell.flow_accumulation:.1f} mm/day",
+                )
+                self._record_threshold_event(
+                    "HIGH_EROSION",
+                    cell.erosion >= self.HIGH_EROSION_EVENT_THRESHOLD,
+                    cell,
+                    f"Soil erosion reached {cell.erosion:.4f} mm/day",
+                )
+                self._record_threshold_event(
+                    "DROUGHT",
+                    cell.soil_moisture <= self.DROUGHT_EVENT_THRESHOLD,
+                    cell,
+                    f"Soil moisture fell to {cell.soil_moisture:.2f}",
+                )
+
+    def _record_threshold_event(self, event_type: str, active: bool, cell: Cell, description: str) -> None:
+        key = (event_type, cell.x, cell.y)
+        if active and key not in self._active_natural_events:
+            self._active_natural_events.add(key)
+            year = (self.day - 1) // 365 + 1
+            annual_key = (year, event_type, cell.x, cell.y)
+            if annual_key not in self._annual_natural_event_keys:
+                self._annual_natural_event_keys.add(annual_key)
+                self.event_log.append({
+                    "day": self.day,
+                    "type": event_type,
+                    "x": cell.x,
+                    "y": cell.y,
+                    "description": description,
+                })
+        elif not active:
+            self._active_natural_events.discard(key)
+
+    def _accumulate_yearly_observations(self) -> None:
+        self._year_outflow_mm += self.last_water_balance.get("external_outflow_mm", 0.0)
+        peak = max((cell for row in self.grid for cell in row), key=lambda cell: cell.flow_accumulation)
+        if peak.flow_accumulation > self._year_peak_flow["value"]:
+            self._year_peak_flow = {
+                "value": peak.flow_accumulation,
+                "x": peak.x,
+                "y": peak.y,
+                "day": self.day,
+            }
+
+    def _finalize_year(self, year: int) -> None:
+        start_day = (year - 1) * 365 + 1
+        end_day = year * 365
+        yearly_events = [
+            dict(event)
+            for event in self.event_log
+            if start_day <= event["day"] <= end_day
+        ]
+        self.annual_summaries.append({
+            "year": year,
+            "start_day": start_day,
+            "end_day": end_day,
+            "start_state": dict(self._year_start_state),
+            "end_state": self._snapshot_world_state(),
+            "events": yearly_events,
+            "watershed_outflow_mm": self._year_outflow_mm,
+            "peak_flow": dict(self._year_peak_flow),
+        })
+        self._year_start_state = self._snapshot_world_state()
+        self._year_outflow_mm = 0.0
+        self._year_peak_flow = {"value": 0.0, "x": 0, "y": 0, "day": self.day}
+
+    def format_annual_summaries(self, year: Optional[int] = None) -> str:
+        """Render completed-year history; the active year is intentionally omitted."""
+        summaries = self.annual_summaries
+        if year is not None:
+            summaries = [summary for summary in summaries if summary["year"] == year]
+
+        if not summaries:
+            if year is not None:
+                return f"No completed summary for Year {year}."
+            current_year = (self.day - 1) // 365 + 1
+            return (
+                f"No completed year yet. Current simulation: Day {self.day}, "
+                f"Year {current_year}."
+            )
+
+        sections = []
+        for summary in summaries:
+            start = summary["start_state"]
+            end = summary["end_state"]
+            lines = [
+                f"[Year {summary['year']} Summary — Days {summary['start_day']}–{summary['end_day']}]",
+                "",
+                "Major events",
+            ]
+            if summary["events"]:
+                # Interventions are deliberate historical actions, so always
+                # show them.  Natural threshold crossings are kept in the raw
+                # log but summarized to one representative event per type;
+                # otherwise a stormy year would become unreadable.
+                interventions = [event for event in summary["events"] if event["type"] == "TREE_CUTTING"]
+                natural_representatives = {}
+                for event in summary["events"]:
+                    if event["type"] != "TREE_CUTTING":
+                        natural_representatives.setdefault(event["type"], event)
+                displayed_events = interventions + list(natural_representatives.values())
+                displayed_events.sort(key=lambda event: event["day"])
+                for event in displayed_events:
+                    lines.append(
+                        f"Day {event['day']} — {event['type']} at ({event['x']},{event['y']}): "
+                        f"{event['description']}."
+                    )
+                remaining = len(summary["events"]) - len(displayed_events)
+                if remaining > 0:
+                    lines.append(f"… plus {remaining} additional threshold crossings retained in the event log.")
+            else:
+                lines.append("No major events were recorded.")
+
+            peak = summary["peak_flow"]
+            lines.extend([
+                "",
+                "Annual world changes",
+                f"Average vegetation: {start['avg_vegetation_cover'] * 100:.1f}% → {end['avg_vegetation_cover'] * 100:.1f}%",
+                f"Average soil moisture: {start['avg_soil_moisture']:.3f} → {end['avg_soil_moisture']:.3f}",
+                f"Average soil fertility: {start['avg_soil_fertility']:.3f} → {end['avg_soil_fertility']:.3f}",
+                f"Watershed outflow: {summary['watershed_outflow_mm']:.1f} cell-mm",
+                f"Peak routed flow: {peak['value']:.1f} mm/day at ({peak['x']},{peak['y']}) on Day {peak['day']}",
+            ])
+            sections.append("\n".join(lines))
+        return "\n\n".join(sections)
 
     def inspect(self, x: int, y: int) -> str:
         """

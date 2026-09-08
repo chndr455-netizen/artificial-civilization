@@ -44,6 +44,7 @@ Available Commands:
                            Layers: vegetation (default), moisture, erosion, elevation, fertility, flow, slope
   cut <x> <y> [cover]      Human intervention: cut forest at (x, y) to cover (default 0.15)
   status                   Display current world day & global average metrics
+  summary [year]           Show completed-year history, optionally one year only
   experiment               Run Experiment 1: Deforestation comparison (World A vs B)
   help                     Show this help guide
   quit / exit              Exit simulation
@@ -55,7 +56,7 @@ def run_cli():
     world = World(width=10, height=10, seed=12345)
     print(f"World initialized. Simulation clock: Day {world.day}.\n")
     print(world.render_ascii_map("vegetation"))
-    print("\nTip: Try typing 'tick 10' or 'inspect 5 5' or 'experiment'.\n")
+    print("\nTip: Try 'tick 365' then 'summary', or 'inspect 5 5'.\n")
 
     while True:
         try:
@@ -134,6 +135,19 @@ def run_cli():
             print(f"Avg Daily Erosion:   {s['avg_erosion']} mm")
             print(f"Avg Daily Runoff:    {s['avg_runoff']} mm")
             print(f"Avg Topsoil Depth:   {s['avg_soil_depth']} m")
+
+        elif cmd == "summary":
+            if len(args) > 1:
+                print("Usage: summary [year]   (e.g., summary or summary 2)")
+                continue
+            try:
+                year = int(args[0]) if args else None
+                if year is not None and year <= 0:
+                    raise ValueError
+            except ValueError:
+                print("Error: Year must be a positive integer.")
+                continue
+            print(world.format_annual_summaries(year))
 
         elif cmd == "experiment":
             print("\nRunning Experiment 1: Deforestation comparison (Day 1-300)...")

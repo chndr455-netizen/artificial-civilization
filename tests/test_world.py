@@ -129,6 +129,22 @@ class TestWorldEngine(unittest.TestCase):
         world.tick(40)
         self.assertAlmostEqual(world.last_water_balance["residual_mm"], 0.0, places=8)
 
+    def test_annual_summary_only_appears_after_completed_year(self):
+        """Yearly history is sealed at day 365 and retains dated interventions."""
+        world = World(seed=123)
+        self.assertIn("No completed year yet", world.format_annual_summaries())
+
+        world.tick(99)  # The next simulation day is Day 100.
+        event = world.intervene_cut_forest(5, 5)
+        self.assertEqual(event["day"], 100)
+        world.tick(266)  # Simulates Day 100 through Day 365.
+
+        self.assertEqual(len(world.annual_summaries), 1)
+        summary = world.format_annual_summaries()
+        self.assertIn("Year 1 Summary — Days 1–365", summary)
+        self.assertIn("Day 100 — TREE_CUTTING at (5,5)", summary)
+        self.assertIn("No completed summary for Year 2", world.format_annual_summaries(2))
+
 
 if __name__ == "__main__":
     unittest.main()
